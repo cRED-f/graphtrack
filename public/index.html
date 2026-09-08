@@ -838,6 +838,7 @@
         const r = await fetch("/api/session/" + encodeURIComponent(slug) + "/" + encodeURIComponent(id));
         if (!r.ok) throw new Error("no data");
         current = await r.json();
+        lastTokens = current.session.totalTokens;
         fillStats(current.session);
         view = "aggregate";
         setViewActive("btnAgg");
@@ -1045,24 +1046,33 @@
     $("btnTable").addEventListener("click", () => { view = "table"; setViewActive("btnTable"); if (!current) render(); else renderTable(); });
 
     // ─── auto-refresh every 10s ───
+    let lastTokens = null;
     async function refreshData() {
       try {
-        // Refresh session list
+        // Refresh session list silently
         const r = await fetch("/api/sessions");
         const data = await r.json();
         if (data.sessions) sessions = data.sessions;
 
-        // Refresh current view data
+        // Refresh current view — only re-render if data actually changed
         if (view === "overview") {
           const ov = await fetch("/api/overview");
-          overview = await ov.json();
-          renderOverview();
+          const newOverview = await ov.json();
+          if (newOverview.totals.totalTokens !== (overview?.totals?.totalTokens)) {
+            overview = newOverview;
+            renderOverview();
+          }
         } else if (current && selectedSession) {
           const sr = await fetch("/api/session/" + encodeURIComponent(selectedSession.project) + "/" + encodeURIComponent(selectedSession.id));
           if (sr.ok) {
-            current = await sr.json();
-            fillStats(current.session);
-            render();
+            const newData = await sr.json();
+            const newTotal = newData.session.totalTokens;
+            if (newTotal !== lastTokens) {
+              lastTokens = newTotal;
+              current = newData;
+              fillStats(current.session);
+              render();
+            }
           }
         }
       } catch { /* server may be restarting — skip this tick */ }

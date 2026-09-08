@@ -12,7 +12,8 @@ as a graph, a table, or a multi-session overview.
 
 Your logs never leave your machine.
 
-[Installation](#installation) · [Quick Start](#quick-start) · [Features](#features) · [CLI Options](#cli-options) · [Development](#development) · [License](#license)
+<img width="900" height="506" alt="graphtrack_marketing_demo_v2" src="https://github.com/user-attachments/assets/6aa8df73-a8a6-48ee-a533-c618a1e835d1" />
+
 
 </div>
 
@@ -36,8 +37,6 @@ Requires [Node.js](https://nodejs.org/) 18+.
 ```bash
 npx graphtrack
 # → Server starts at http://localhost:9090
-# → Picks up sessions from ~/.claude/projects automatically
-# → Pick a session from the dropdown and explore
 ```
 
 Point at a custom log directory:

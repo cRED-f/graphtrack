@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="Graphtrack — visualize Claude Code token usage as an interactive graph." />
+<title>Graphtrack</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.9/standalone/umd/vis-network.min.js"></script>
+<style>
+  :root {
+    --canvas:#0a0a0a; --card:#1a1a1a; --yellow:#faff69; --body:#cccccc; --muted:#888888;
+  }
+  * { box-sizing: border-box; }
+  html, body { height:100%; }
+  body { margin:0; font-family: Inter, system-ui, sans-serif; background:var(--canvas); color:var(--body); display:flex; flex-direction:column; }
+  header { padding:12px 28px; border-bottom:1px solid #2a2a2a; display:flex; align-items:center; gap:18px; flex: 0 0 auto; flex-wrap:wrap; }
+  header h1 { font-size:18px; margin:0; color:#fff; letter-spacing:-0.5px; font-weight:700; }
+  header .dot { color:var(--yellow); margin-right:2px; }
+  header .sub { font-size:12px; color:var(--muted); }
+  select {
+    background:var(--card); color:var(--body); border:1px solid #3a3a3a;
+    padding:6px 10px; border-radius:6px; font-size:13px; max-width:320px;
+  }
+  select:disabled { opacity:0.5; }
+  .toggle { margin-left:auto; display:flex; gap:8px; }
+  .toggle button {
+    background:var(--card); color:var(--body); border:1px solid #3a3a3a;
+    padding:6px 12px; border-radius:6px; cursor:pointer; font-size:13px;
+  }
+  .toggle button:hover { border-color:#5a5a5a; }
+  .toggle button.active { background:var(--yellow); color:#0a0a0a; border-color:var(--yellow); font-weight:600; }
+  #stats { flex: 0 0 auto; padding:12px 28px; display:flex; gap:28px; flex-wrap:wrap; font-size:13px; border-bottom:1px solid #2a2a2a; }
+  #stats .stat { display:flex; flex-direction:column; gap:2px; }
+  #stats .stat .label { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:0.5px; }
+  #stats .stat .value { color:#fff; font-weight:600; font-size:14px; }
+  #graph {
+    flex: 1 1 auto; min-height:0; width:100%;
+    background-color: var(--canvas);
+    background-image:
+      linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px);
+    background-size: 42px 42px;
+    position: relative;
+  }
+  #graph::after {
+    content:"";
+    position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at center, rgba(255,250,105,0.04) 0%, transparent 55%);
+  }
+  #graph canvas { position: relative; z-index: 2; }
+  #graph .empty {
+    position: absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:8px; z-index:2; text-align:center; padding:24px;
+  }
+  #graph .empty h2 { color:#fff; margin:0; font-size:20px; }
+  #graph .empty p { color:var(--muted); margin:0; font-size:13px; max-width:460px; line-height:1.5; }
+  #graph .empty code { background:var(--card); padding:2px 6px; border-radius:4px; color:var(--yellow); }
+  #spinner { display:none; position:fixed; inset:0; z-index:1000; align-items:center; justify-content:center; }
+  #spinner.on { display:flex; }
+  #spinner span { color:var(--yellow); border:2px solid #3a3a3a; border-top-color:var(--yellow); border-radius:50%; width:34px; height:34px; animation:spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #btnOverview {
+    background:var(--card); color:var(--body); border:1px solid #3a3a3a;
+    padding:6px 12px; border-radius:6px; cursor:pointer; font-size:13px;
+  }
+  #btnOverview:hover { border-color:#5a5a5a; }
+  #btnOverview.active { background:var(--yellow); color:#0a0a0a; border-color:var(--yellow); font-weight:600; }
+  .tables { height:100%; overflow:auto; padding:20px 28px 40px; }
+  .tbl-sec { margin-bottom:28px; max-width:900px; }
+  .tables h3 { color:#fff; margin:0 0 10px; font-size:14px; letter-spacing:1px; text-transform:uppercase; }
+  .tables table { width:100%; border-collapse:collapse; font-size:13px; }
+  .tables th, .ov-list th { text-align:left; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.5px; font-weight:600; padding:6px 12px; border-bottom:1px solid #2a2a2a; }
+  .tables td, .ov-list td { padding:7px 12px; border-bottom:1px solid #242424; color:var(--body); }
+  .tables th.num, .tables td.num, .ov-list th.num, .ov-list td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .swatch { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:8px; vertical-align:middle; }
+  .bar { display:inline-block; height:8px; border-radius:4px; min-width:2px; vertical-align:middle; }
+  .tables .muted, .ov-list .muted { color:var(--muted); }
+  .ov-wrap { height:100%; display:flex; }
+  .ov-graph { flex:1 1 auto; min-width:0; position:relative; }
+  .ov-list { flex:0 0 420px; overflow:auto; padding:20px 24px; border-left:1px solid #2a2a2a; }
+  .ov-list h3 { color:#fff; margin:0 0 12px; font-size:14px; letter-spacing:1px; text-transform:uppercase; }
+  .ov-list .hint { color:var(--muted); font-size:12px; margin:12px 0 0; }
+  .project-row { cursor:pointer; }
+  .project-row:hover td { background:#121212; }
+  .proj-name { color:#fff; font-family:ui-monospace, monospace; font-size:12px; }
+  #glow {
+    position: fixed; inset: 0; pointer-events: none; z-index: 9999;
+    background: radial-gradient(circle 200px at var(--gx, -9999px) var(--gy, -9999px),
+      rgba(255,250,105,0.16), rgba(255,250,105,0.05) 45%, transparent 72%);
+    opacity: 0;
+  }
+  #glow.on { opacity: 1; }
+</style>
+</head>
+<body>
+  <header>
+    <h1><span class="dot">▪</span>Graphtrack</h1>
+    <span class="sub">Claude Code token usage, as a graph</span>
+    <button id="btnOverview" title="All sessions at a glance">Overview</button>
+    <select id="sessionSelect" disabled title="Select a session"><option>Loading sessions…</option></select>
+    <div class="toggle">
+      <button id="btnAgg" class="active">Aggregate</button>
+      <button id="btnChain">Chronological</button>
+      <button id="btnTable">Table</button>
+    </div>
+  </header>
+  <div id="stats">
+    <div class="stat"><span class="label">Started</span><span class="value" id="sStarted">–</span></div>
+    <div class="stat"><span class="label">Duration</span><span class="value" id="sDur">–</span></div>
+    <div class="stat"><span class="label">Model</span><span class="value" id="sModel">–</span></div>
+    <div class="stat"><span class="label">Turns</span><span class="value" id="sTurns">–</span></div>
+    <div class="stat"><span class="label">Tool calls</span><span class="value" id="sCalls">–</span></div>
+    <div class="stat"><span class="label">Total</span><span class="value" id="sTotal">–</span></div>
+    <div class="stat"><span class="label">Input</span><span class="value" id="sIn">–</span></div>
+    <div class="stat"><span class="label">Output</span><span class="value" id="sOut">–</span></div>
+    <div class="stat"><span class="label">Cache read</span><span class="value" id="sRead">–</span></div>
+    <div class="stat"><span class="label">Cache write</span><span class="value" id="sWrite">–</span></div>
+  </div>
+  <div id="graph"></div>
+  <div id="spinner"><span></span></div>
+  <div id="glow"></div>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const fmt = (n) => n == null ? "–" : n >= 1e6 ? (n/1e6).toFixed(1)+"M" : n >= 1e3 ? (n/1e3).toFixed(1)+"k" : n;
+    const fmtTime = (iso) => iso ? new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "–";
+    const fmtDur = (ms) => {
+      if (ms == null) return "–";
+      const s = Math.round(ms / 1000);
+      if (s < 60) return s + "s";
+      const m = Math.floor(s / 60), r = s % 60;
+      return m < 60 ? m + "m " + r + "s" : Math.floor(m / 60) + "h " + (m % 60) + "m";
+    };
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+    function truncate(s, n) { s = String(s); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
+
+    const sessionSelect = $("sessionSelect");
+    const spinner = $("spinner");
+    const container = $("graph");
+    let current = null;   // { session, turns, aggregate, chronological, toolAggregates }
+    let overview = null;  // { totals, projects, toolAggregates, graph }
+    let view = "overview";
+    let network = null;
+
+    const glow = document.getElementById("glow");
+    const root = document.documentElement;
+    container.addEventListener("mousemove", (e) => {
+      root.style.setProperty("--gx", e.clientX + "px");
+      root.style.setProperty("--gy", e.clientY + "px");
+      glow.classList.add("on");
+    });
+    container.addEventListener("mouseleave", () => glow.classList.remove("on"));
+
+    const options = {
+      physics: { enabled: true, solver: "forceAtlas2Based", stabilization: { iterations: 200 } },
+      interaction: { hover: true, tooltipDelay: 200 },
+      nodes: { shape: "dot", font: { color: "#cccccc", size: 13 }, widthConstraint: { maximum: 140 } },
+      edges: { color: { color: "#3a3a3a", highlight: "#faff69" }, smooth: { enabled: true, type: "dynamic" } },
+    };
+
+    function showSpinner(on) { spinner.classList.toggle("on", on); }
+    function setViewActive(active) {
+      ["btnAgg", "btnChain", "btnTable", "btnOverview"].forEach((id) => $(id).classList.toggle("active", id === active));
+    }
+    function unmountGraph() { if (network) { network.destroy(); network = null; } }
+    function mountGraph(data, el) {
+      unmountGraph();
+      network = new vis.Network(el || container, { nodes: new vis.DataSet(data.nodes), edges: new vis.DataSet(data.edges) }, options);
+    }
+
+    function fillStats(s) {
+      $("sStarted").textContent = fmtTime(s.startedAt);
+      $("sDur").textContent = fmtDur(s.durationMs);
+      $("sModel").textContent = s.model;
+      $("sTurns").textContent = s.turns;
+      $("sCalls").textContent = s.toolCalls;
+      $("sTotal").textContent = fmt(s.totalTokens);
+      $("sIn").textContent = fmt(s.totalInput);
+      $("sOut").textContent = fmt(s.totalOutput);
+      $("sRead").textContent = fmt(s.totalCacheRead);
+      $("sWrite").textContent = fmt(s.totalCacheWrite);
+    }
+
+    function showEmpty(title, body) {
+      unmountGraph();
+      container.innerHTML = '<div class="empty">' + (title ? "<h2></h2><p></p>" : "") + '</div>';
+      if (title) { container.querySelector("h2").textContent = title; container.querySelector("p").textContent = body; }
+    }
+
+    // ---- session views (aggregate / chronological / table) ----
+
+    function render() {
+      if (!current) { showEmpty("No session selected", "Pick a session from the dropdown, or open Overview for all sessions."); return; }
+      if (view === "table") { renderTable(); return; }
+      mountGraph(view === "chronological" ? current.chronological : current.aggregate);
+    }
+
+    function renderTable() {
+      unmountGraph();
+      const tools = current.toolAggregates || [];
+      const turns = current.turns || [];
+      const toolMax = Math.max(1, ...tools.map((t) => t.totalTokens));
+      const toolRows = tools.map((t) => `
+        <tr>
+          <td><span class="swatch" style="background:${t.color}"></span>${escapeHtml(t.name)}</td>
+          <td class="num">${t.calls}</td>
+          <td class="num">${fmt(t.totalTokens)}</td>
+          <td><div class="bar" style="width:${Math.max(2, Math.round(t.totalTokens / toolMax * 100))}%;background:${t.color}"></div></td>
+        </tr>`).join("");
+      const turnRows = turns.map((t) => `
+        <tr>
+          <td class="num">${t.index + 1}</td>
+          <td title="${escapeHtml(t.prompt)}">${escapeHtml(truncate(t.prompt, 64))}</td>
+          <td class="num">${t.toolCalls}</td>
+          <td class="num">${fmt(t.totalTokens)}</td>
+        </tr>`).join("");
+      container.innerHTML = `
+        <div class="tables">
+          <section class="tbl-sec">
+            <h3>Tool share</h3>
+            <table>
+              <thead><tr><th>Tool</th><th class="num">Calls</th><th class="num">Tokens</th><th style="width:34%">Share</th></tr></thead>
+              <tbody>${toolRows || '<tr><td colspan="4" class="muted">No tool calls in this session.</td></tr>'}</tbody>
+            </table>
+          </section>
+          <section class="tbl-sec">
+            <h3>Turns</h3>
+            <table>
+              <thead><tr><th class="num">#</th><th>Prompt</th><th class="num">Calls</th><th class="num">Tokens</th></tr></thead>
+              <tbody>${turnRows || '<tr><td colspan="4" class="muted">No turns in this session.</td></tr>'}</tbody>
+            </table>
+          </section>
+        </div>`;
+    }
+
+    async function loadSession(slug, id) {
+      showSpinner(true);
+      try {
+        const r = await fetch("/api/session/" + encodeURIComponent(slug) + "/" + encodeURIComponent(id));
+        if (!r.ok) throw new Error("no data");
+        current = await r.json();
+        fillStats(current.session);
+        view = "aggregate";
+        setViewActive("btnAgg");
+        render();
+      } catch (e) {
+        showEmpty("Could not load session", "The server couldn't parse this session file. It may be malformed or the API returned no data.");
+      } finally {
+        showSpinner(false);
+      }
+    }
+
+    // ---- overview ----
+
+    function overviewStats(o) {
+      return {
+        model: "All sessions",
+        startedAt: "",
+        durationMs: null,
+        turns: o.totals.sessions,
+        toolCalls: o.toolAggregates.reduce((a, t) => a + t.calls, 0),
+        totalTokens: o.totals.totalTokens,
+        totalInput: o.totals.totalInput,
+        totalOutput: o.totals.totalOutput,
+        totalCacheRead: o.totals.totalCacheRead,
+        totalCacheWrite: o.totals.totalCacheWrite,
+      };
+    }
+
+    function filterSessions(project) {
+      for (const opt of sessionSelect.options) opt.hidden = opt.dataset.slug !== project;
+      const firstVisible = [...sessionSelect.options].find((o) => !o.hidden);
+      if (firstVisible) { sessionSelect.value = firstVisible.value; loadSession(firstVisible.dataset.slug, firstVisible.value); }
+    }
+
+    function renderOverview() {
+      unmountGraph();
+      const o = overview;
+      if (!o) { showEmpty("No overview data", "The server didn't return an overview."); return; }
+      fillStats(overviewStats(o));
+      const projMax = Math.max(1, ...o.projects.map((p) => p.totalTokens));
+      const total = o.totals.totalTokens || 1;
+      const projRows = o.projects.map((p) => `
+        <tr class="project-row" data-project="${escapeHtml(p.project)}">
+          <td class="proj-name">${escapeHtml(p.project)}</td>
+          <td class="num">${p.sessions}</td>
+          <td class="num">${fmt(p.totalTokens)}</td>
+          <td class="num">${Math.round(p.totalTokens / total * 100)}%</td>
+          <td><div class="bar" style="width:${Math.max(2, Math.round(p.totalTokens / projMax * 100))}%;background:var(--yellow)"></div></td>
+        </tr>`).join("");
+      container.innerHTML = `
+        <div class="ov-wrap">
+          <div class="ov-graph" id="ovGraph"></div>
+          <div class="ov-list">
+            <h3>Projects · ${o.totals.sessions} sessions</h3>
+            <table>
+              <thead><tr><th>Project</th><th class="num">Sess</th><th class="num">Tokens</th><th class="num">%</th><th style="width:30%"></th></tr></thead>
+              <tbody>${projRows || '<tr><td colspan="5" class="muted">No sessions found.</td></tr>'}</tbody>
+            </table>
+            <p class="hint">Click a project to load its sessions above.</p>
+          </div>
+        </div>`;
+      container.querySelectorAll(".project-row").forEach((tr) =>
+        tr.addEventListener("click", () => filterSessions(tr.dataset.project)));
+      const hub = o.graph || { nodes: [{ id: "session", label: "All sessions", value: 6, color: { background: "#faff69" } }], edges: [] };
+      if ($("ovGraph")) mountGraph(hub, $("ovGraph"));
+    }
+
+    async function loadOverview() {
+      showSpinner(true);
+      try {
+        const r = await fetch("/api/overview");
+        overview = await r.json();
+        view = "overview";
+        setViewActive("btnOverview");
+        renderOverview();
+      } catch (e) {
+        showEmpty("Can't reach the Graphtrack server", "Start it with:  graphtrack   — this page must be served from http://localhost:9090.");
+      } finally {
+        showSpinner(false);
+      }
+    }
+
+    // ---- boot + controls ----
+
+    async function loadSessions() {
+      try {
+        const r = await fetch("/api/sessions");
+        const data = await r.json();
+        if (!data.sessions || data.sessions.length === 0) {
+          showEmpty("No Claude Code sessions found",
+            "Graphtrack reads session logs from " + data.logsDir + ". Run Claude Code a few times, then restart with:  graphtrack --dir <path>  if your logs live elsewhere.");
+          return;
+        }
+        sessionSelect.disabled = false;
+        sessionSelect.innerHTML = "";
+        data.sessions.forEach((s) => {
+          const opt = document.createElement("option");
+          opt.value = s.id;
+          opt.dataset.slug = s.project;
+          opt.textContent = s.project + " · " + s.id;
+          sessionSelect.appendChild(opt);
+        });
+        loadOverview();
+      } catch (e) {
+        showEmpty("Can't reach the Graphtrack server",
+          "Start it with:  graphtrack   — this page must be served from http://localhost:9090.");
+      }
+    }
+
+    sessionSelect.addEventListener("change", () => {
+      const opt = sessionSelect.selectedOptions[0];
+      if (opt) loadSession(opt.dataset.slug, opt.value);
+    });
+    $("btnOverview").addEventListener("click", () => {
+      view = "overview";
+      setViewActive("btnOverview");
+      if (!overview) loadOverview(); else renderOverview();
+    });
+    $("btnAgg").addEventListener("click", () => { view = "aggregate"; setViewActive("btnAgg"); render(); });
+    $("btnChain").addEventListener("click", () => { view = "chronological"; setViewActive("btnChain"); render(); });
+    $("btnTable").addEventListener("click", () => { view = "table"; setViewActive("btnTable"); if (!current) render(); else renderTable(); });
+
+    loadSessions();
+  </script>
+</body>
+</html>

@@ -11,6 +11,23 @@
  */
 import type { Session, ToolAggregate } from "./types.js";
 
+/**
+ * Claude Code logs report usage per assistant message, not per tool call.
+ * To size tool nodes fairly, spread each turn's total tokens onto its tool
+ * calls proportional to call count. This is a heuristic — call.totalTokens is
+ * approximate per-call, exact in aggregate. Callers must invoke it after parse.
+ */
+export function spreadTokens(session: Session): void {
+  for (const turn of session.turns) {
+    if (turn.toolCalls.length && turn.totalTokens > 0) {
+      const share = turn.totalTokens / turn.toolCalls.length;
+      for (const call of turn.toolCalls) {
+        call.totalTokens = Math.round(share);
+      }
+    }
+  }
+}
+
 export interface VisNode {
   id: string;
   label: string;
@@ -51,47 +68,60 @@ function scale(value: number): number {
   return Math.sqrt(value) / 10;
 }
 
-/** Hub-and-tool aggregate graph for one session. */
-export function buildAggregateGraph(session: Session): { nodes: VisNode[]; edges: VisEdge[] } {
+/** Hub-and-tool aggregate graph: one root connected to tool nodes sized by token share. */
+export function buildToolHubGraph(
+  tools: { name: string; calls: number; totalTokens: number }[],
+  rootLabel: string,
+  rootTitle = "This session",
+): { nodes: VisNode[]; edges: VisEdge[] } {
   const nodes: VisNode[] = [];
   const edges: VisEdge[] = [];
 
-  const rootId = "session";
   nodes.push({
-    id: rootId,
-    label: `${session.project}\n${session.turns.length} turns · ${fmt(session.totalTokens)} tok`,
+    id: "session",
+    label: rootLabel,
     value: 6,
     color: { background: "#faff69", border: "#e6eb52" },
     group: "session",
-    title: "This session",
+    title: rootTitle,
   });
 
+  const sorted = [...tools].sort((a, b) => b.totalTokens - a.totalTokens);
+  const maxTokens = Math.max(1, ...[...tools].map((v) => v.totalTokens));
+  for (const t of sorted) {
+    const id = `tool:${t.name}`;
+    nodes.push({
+      id,
+      label: `${t.name}\n${t.calls}× · ${fmt(t.totalTokens)}`,
+      value: 1 + 5 * (t.totalTokens / maxTokens),
+      color: { background: toolColor(t.name), border: "#ffffff" },
+      group: "tool",
+      title: `${t.name}: ${t.calls} calls, ${fmt(t.totalTokens)} tokens`,
+    });
+    edges.push({ from: "session", to: id, value: 2 + 4 * (t.totalTokens / maxTokens), title: `${t.name}: ${fmt(t.totalTokens)}` });
+  }
+
+  return { nodes, edges };
+}
+
+/** Hub-and-tool aggregate graph for one session. */
+export function buildAggregateGraph(session: Session): { nodes: VisNode[]; edges: VisEdge[] } {
   // Group tool calls across the whole session (reuse aggregation).
-  const byTool = new Map<string, { calls: number; tokens: number }>();
+  const byTool = new Map<string, { name: string; calls: number; totalTokens: number }>();
   for (const turn of session.turns) {
     for (const call of turn.toolCalls) {
-      const entry = byTool.get(call.name) ?? { calls: 0, tokens: 0 };
+      const entry = byTool.get(call.name) ?? { name: call.name, calls: 0, totalTokens: 0 };
       entry.calls += 1;
-      entry.tokens += call.totalTokens || 1;
+      entry.totalTokens += call.totalTokens || 1;
       byTool.set(call.name, entry);
     }
   }
 
-  const maxTokens = Math.max(1, ...[...byTool.values()].map((v) => v.tokens));
-  for (const [name, agg] of byTool) {
-    const id = `tool:${name}`;
-    nodes.push({
-      id,
-      label: `${name}\n${agg.calls}× · ${fmt(agg.tokens)}`,
-      value: 1 + 5 * (agg.tokens / maxTokens),
-      color: { background: toolColor(name), border: "#ffffff" },
-      group: "tool",
-      title: `${name}: ${agg.calls} calls, ${fmt(agg.tokens)} tokens`,
-    });
-    edges.push({ from: rootId, to: id, value: 2 + 4 * (agg.tokens / maxTokens), title: `${name}: ${fmt(agg.tokens)}` });
-  }
-
-  return { nodes, edges };
+  return buildToolHubGraph(
+    [...byTool.values()],
+    `${session.project}\n${session.turns.length} turns · ${fmt(session.totalTokens)} tok`,
+    "This session",
+  );
 }
 
 /** Turn-by-turn chronological graph: session → prompts → their tool calls. */

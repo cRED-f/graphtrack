@@ -12,7 +12,7 @@
   * { box-sizing: border-box; }
   html, body { height:100%; }
   body { margin:0; font-family: Inter, system-ui, sans-serif; background:var(--canvas); color:var(--body); display:flex; flex-direction:column; }
-  header { padding:16px 24px; border-bottom:1px solid #2a2a2a; display:flex; align-items:center; gap:16px; }
+  header { padding:16px 24px; border-bottom:1px solid #2a2a2a; display:flex; align-items:center; gap:16px; flex: 0 0 auto; }
   header h1 { font-size:18px; margin:0; color:#fff; letter-spacing:-0.5px; }
   header span.y { color:var(--yellow); }
   .toggle { margin-left:auto; display:flex; gap:8px; }
@@ -21,7 +21,6 @@
     padding:6px 12px; border-radius:6px; cursor:pointer; font-size:13px;
   }
   .toggle button.active { background:var(--yellow); color:#0a0a0a; border-color:var(--yellow); font-weight:600; }
-  header { flex: 0 0 auto; }
   #stats { flex: 0 0 auto; padding:12px 24px; display:flex; gap:24px; flex-wrap:wrap; font-size:13px; border-bottom:1px solid #2a2a2a; }
   #stats b { color:#fff; }
   #graph {
@@ -35,13 +34,27 @@
     position: relative;
   }
   #graph::after {
-    /* soft radial glow behind the action, pulls the eye to center */
+    /* soft static radial glow behind the action */
     content: "";
     position: absolute; inset: 0; pointer-events: none;
-    background: radial-gradient(ellipse at center, rgba(255,250,105,0.05) 0%, transparent 55%);
+    background: radial-gradient(ellipse at center, rgba(255,250,105,0.04) 0%, transparent 55%);
   }
-  #graph canvas { position: relative; z-index: 1; }
-  footer { padding:12px 24px; font-size:12px; color:var(--muted); }
+  #graph canvas { position: relative; z-index: 2; }
+  #glow {
+    /* Cursor-following spotlight: a FIXED full-screen overlay whose radial
+       gradient center is driven by CSS variables --gx/--gy set to the cursor's
+       viewport coords on mousemove. No absolute positioning over the canvas,
+       no blend/filter, no container-rect math — renders identically in any
+       Chromium (Claude webview, Chrome, Edge). pointer-events:none lets all
+       graph interaction pass through. */
+    position: fixed; inset: 0; pointer-events: none; z-index: 9999;
+    background: radial-gradient(circle 340px at var(--gx, -9999px) var(--gy, -9999px),
+      rgba(255,250,105,0.26),
+      rgba(255,250,105,0.07) 45%,
+      transparent 72%);
+    opacity: 0;
+  }
+  #glow.on { opacity: 1; }
 </style>
 </head>
 <body>
@@ -63,6 +76,7 @@
     <span>Cache write <b id="sWrite">–</b></span>
   </div>
   <div id="graph"></div>
+  <div id="glow"></div>
   <script src="graph-data.js"></script>
   <script>
     const D = window.GRAPHTRACK_DATA;
@@ -81,6 +95,14 @@
     $("sWrite").textContent = fmt(s.totalCacheWrite);
 
     const container = $("graph");
+    const glow = document.getElementById("glow");
+    const root = document.documentElement;
+    container.addEventListener("mousemove", (e) => {
+      root.style.setProperty("--gx", e.clientX + "px");
+      root.style.setProperty("--gy", e.clientY + "px");
+      glow.classList.add("on");
+    });
+    container.addEventListener("mouseleave", () => glow.classList.remove("on"));
     const options = {
       physics: { enabled: true, solver: "forceAtlas2Based", stabilization: { iterations: 200 } },
       interaction: { hover: true, tooltipDelay: 200 },

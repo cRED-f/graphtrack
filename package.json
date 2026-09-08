@@ -11,8 +11,11 @@
     "build": "tsc",
     "start": "node dist/cli.js",
     "dev": "tsc --watch",
-    "test": "node --experimental-strip-types --test test/*.test.ts"
+    "test": "npm run build && node --experimental-strip-types --test test/*.test.ts",
+    "prepublishOnly": "npm run build",
+    "pack:check": "npm pack --dry-run"
   },
+  "files": ["dist", "public/index.html"],
   "keywords": [
     "claude-code",
     "token",

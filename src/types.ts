@@ -42,8 +42,10 @@ export interface Session {
   /** Project slug directory the session lives under. */
   project: string;
   model: string;
-  /** ISO timestamp of first activity. */
+  /** ISO timestamp of first activity ("" if the log carries no timestamps). */
   startedAt: string;
+  /** Wall-clock duration from first to last timestamped line (null if unknown). */
+  durationMs: number | null;
   turns: Turn[];
   totalTokens: number;
   totalInput: number;
@@ -64,4 +66,29 @@ export interface ToolAggregate {
   outputTokens: number;
   cacheRead: number;
   cacheWrite: number;
+}
+
+/** Totals for one project across all of its sessions. */
+export interface ProjectOverview {
+  project: string;
+  sessions: number;
+  totalTokens: number;
+  totalInput: number;
+  totalOutput: number;
+  totalCacheRead: number;
+  totalCacheWrite: number;
+}
+
+/** The multi-session overview: per-project rows + global totals + tool share. */
+export interface Overview {
+  projects: ProjectOverview[];
+  totals: {
+    sessions: number;
+    totalTokens: number;
+    totalInput: number;
+    totalOutput: number;
+    totalCacheRead: number;
+    totalCacheWrite: number;
+  };
+  toolAggregates: ToolAggregate[];
 }

@@ -1,67 +1,103 @@
+<div align="center">
+
 # Graphtrack
 
-Visualize your **Claude Code** token usage as an interactive graph.
+[![npm version](https://img.shields.io/npm/v/graphtrack.svg?style=flat-square)](https://www.npmjs.com/package/graphtrack)
+[![license](https://img.shields.io/npm/l/graphtrack?style=flat-square)](https://github.com/nicholasgriffintn/graphtrack/blob/main/LICENSE)
 
-Instead of tables and bars, Graphtrack turns a session into a navigable network —
-prompts, tool calls, and their token weight rendered as nodes and edges. Node size
-is token share, color is tool type, and edges trace how your tokens actually flowed.
-Find out at a glance which tool is eating your budget, or trace a single request
-from prompt to result.
+**Interactive token-usage dashboard for Claude Code.**
 
-```
-~/.claude/projects/<project>/<session>.jsonl  →  parse  →  graph  →  serve on localhost
-```
+Run `npx graphtrack`, open `localhost:9090`, and see exactly where your tokens go —
+as a graph, a table, or a multi-session overview.
 
-## Why local?
+Your logs never leave your machine.
 
-This is a **local-first, open-source tool**. Your logs are parsed on your machine and
-served to your own browser at `localhost`. Nothing is uploaded, stored, or shared.
-Your usage data never leaves your computer.
+[Installation](#installation) · [Quick Start](#quick-start) · [Features](#features) · [CLI Options](#cli-options) · [Development](#development) · [License](#license)
 
-## Getting started
+</div>
+
+---
+
+## Installation
 
 ```bash
-# from the repo root
-npm install
-npm run build
-npm start            # starts a localhost server
+# No install needed — runs directly from npm
+npx graphtrack
+
+# Or install globally
+npm install -g graphtrack
+graphtrack
 ```
 
-Then open the printed URL, pick a session (or point Graphtrack at
-`~/.claude/projects`), and explore the graph.
+Requires [Node.js](https://nodejs.org/) 18+.
 
-### Phase 0 spike (no server needed)
-
-A standalone preview page is generated from a synthetic sample session so you can
-judge the visualization without any setup:
+## Quick Start
 
 ```bash
-npm run build
-node scripts/build-spike.mjs
-# open public/phase0/phase0.html in a browser
+npx graphtrack
+# → Server starts at http://localhost:9090
+# → Picks up sessions from ~/.claude/projects automatically
+# → Pick a session from the dropdown and explore
 ```
 
-## Roadmap
+Point at a custom log directory:
 
-- **Phase 0** — validate the graph metaphor on realistic data ✓ (spike shipped)
-- **Phase 1** — JSONL parser + typed model + per-tool aggregation
-- **Phase 2** — localhost web app: vis.js graph + table view
-- **Phase 3** — multi-session overview, empty state, error handling
-- **Phase 4** — install polish, docs, CI
+```bash
+npx graphtrack --dir /path/to/.claude/projects
+```
 
-## Project layout
+Use a different port:
+
+```bash
+npx graphtrack --port 3000
+```
+
+## Features
+
+### Four views, one dashboard
+
+| View                    | What it shows                                                                               |
+| ----------------------- | ------------------------------------------------------------------------------------------- |
+| **Overview**            | Aggregate stats across all sessions — total tokens, per-project breakdown, tool usage share |
+| **Aggregate Graph**     | Hub-and-spoke network: each tool is a node, size = token share, color = tool type           |
+| **Chronological Graph** | Turn-by-turn chain: each prompt links to the tools it triggered, ordered in time            |
+| **Table**               | Sortable per-tool and per-turn tables with color-coded token bars                           |
+
+### What gets tracked
+
+- **Input / output / cache tokens** per session, per turn, and per tool call
+- **Real timestamps** — session start time and wall-clock duration from the actual logs
+- **Tool breakdown** — which tools consume the most tokens, how many times each was called
+- **Project grouping** — sessions organized by project in the Overview view
+
+### Tool color legend
+
+| Tool  | Color                                       |
+| ----- | ------------------------------------------- |
+| Edit  | <span style="color:#ff6b6b">●</span> Red    |
+| Bash  | <span style="color:#faff69">●</span> Yellow |
+| Read  | <span style="color:#3b82f6">●</span> Blue   |
+| Write | <span style="color:#4cff4c">●</span> Green  |
+| Glob  | <span style="color:#b06bff">●</span> Purple |
+| Grep  | <span style="color:#ff8cff">●</span> Pink   |
+| Agent | <span style="color:#ffb347">●</span> Orange |
+
+## Project Structure
 
 ```
 src/
-  types.ts      shared data model (Session/Turn/ToolCall/Usage)
-  parser.ts     JSONL → typed Session
-  graph.ts      Session → vis.js nodes/edges (aggregate + chronological)
-scripts/
-  build-spike.mjs  Phase 0 preview generator
+  types.ts        Data model (Session, Turn, ToolCall, Usage, Overview)
+  parser.ts       JSONL → Session + aggregateSessions()
+  graph.ts        Session → vis.js nodes/edges (aggregate + chronological)
+  server.ts       Express API + static file serving
+  cli.ts          CLI entry point (--dir, --port, --help)
+
 public/
-  phase0/       standalone preview page
+  index.html      Dashboard UI (4 views, vanilla JS)
+
 test/
-  fixtures/     sample-session generator
+  parser.test.ts  Unit tests for parser, aggregation, and graph builders
+  fixtures/       Sample session data for tests
 ```
 
 ## License

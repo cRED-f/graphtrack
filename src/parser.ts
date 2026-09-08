@@ -5,13 +5,14 @@
  * unreadable file (callers decide how to surface partial failures).
  */
 import { readFileSync } from "node:fs";
-import type { Session, ToolCall, ToolAggregate, Turn, Usage } from "./types.js";
+import type { Overview, ProjectOverview, Session, ToolCall, ToolAggregate, Turn, Usage } from "./types.js";
 
 interface RawMessage {
   role?: string;
   model?: string;
   stop_reason?: string;
-  content?: RawContent[];
+  /** Real logs sometimes carry content as a single object or a string, not an array. */
+  content?: RawContent[] | RawContent | string;
   usage?: Usage;
 }
 
@@ -20,27 +21,30 @@ type RawContent =
   | { type: "tool_use"; id?: string; name?: string; input?: Record<string, unknown> }
   | { type: "tool_result"; tool_use_id?: string; content?: unknown };
 
-/** Parse one line of JSONL into a drop of structure we care about. */
-function parseLine(raw: string): RawMessage | null {
+/** Normalize a message's content field to an array for the rest of the parser. */
+function normalizeContent(content: RawContent[] | RawContent | string | undefined): RawContent[] {
+  if (!content) return [];
+  if (typeof content === "string") return [{ type: "text", text: content }];
+  return Array.isArray(content) ? content : [content];
+}
+
+/** Parse one line of JSONL into the message we care about + its timestamp. */
+function parseLine(raw: string): { msg: RawMessage; timestamp?: string } | null {
   const line = raw.trim();
   if (!line) return null;
-  let obj: { type?: string; message?: RawMessage; session_id?: string; cwd?: string; model?: string; timestamp?: string; requestId?: string };
+  let obj: { message?: RawMessage; timestamp?: string };
   try {
     obj = JSON.parse(line);
   } catch {
     return null; // malformed line — skip, don't crash
   }
-  return obj?.message ?? null;
+  if (!obj?.message) return null;
+  return { msg: obj.message, timestamp: obj.timestamp };
 }
 
-function contentSummary(content: RawContent[] | undefined): string {
-  if (!content) return "";
-  return content
-    .map((b) => {
-      if (b.type === "text") return b.text ?? "";
-      if (b.type === "tool_use") return "";
-      return "";
-    })
+function contentSummary(blocks: RawContent[]): string {
+  return blocks
+    .map((b) => (b.type === "text" && typeof b.text === "string" ? b.text : ""))
     .filter(Boolean)
     .join(" ");
 }
@@ -65,6 +69,7 @@ export function parseSession(filePath: string, project: string): Session {
     project,
     model: "unknown",
     startedAt: "",
+    durationMs: null,
     turns: [],
     totalTokens: 0,
     totalInput: 0,
@@ -73,19 +78,32 @@ export function parseSession(filePath: string, project: string): Session {
     totalCacheWrite: 0,
   };
 
+  // Track the earliest/latest timestamp across all lines to get real timings.
+  let startTs: number | null = null;
+  let lastTs: number | null = null;
+  const noteTime = (ts?: string) => {
+    if (!ts) return;
+    const n = Date.parse(ts);
+    if (Number.isNaN(n)) return;
+    if (startTs === null || n < startTs) startTs = n;
+    if (lastTs === null || n > lastTs) lastTs = n;
+  };
+
   // We walk the stream and slice it into turns. A turn starts at a user message
   // that contains a text prompt (i.e. a real request, not a tool_result).
   let current: Turn | null = null;
 
   for (const line of lines) {
-    const msg = parseLine(line);
-    if (!msg) continue;
+    const parsed = parseLine(line);
+    if (!parsed) continue;
+    const { msg, timestamp } = parsed;
+    noteTime(timestamp);
 
-    const text = contentSummary(msg.content);
+    const content = normalizeContent(msg.content);
+    const text = contentSummary(content);
 
     // Determine message kind
     const hasText = Boolean(text.trim());
-    const content = msg.content ?? [];
 
     // A new turn begins when the user speaks with text (not a tool_result).
     if (msg.role === "user" && hasText && content.every((b) => b.type !== "tool_result")) {
@@ -127,9 +145,10 @@ export function parseSession(filePath: string, project: string): Session {
   }
   if (current) session.turns.push(current);
 
-  session.startedAt = session.turns[0] ? String(session.turns[0]?.prompt.length) : "";
-  // Derive a pseudo start time from the file's first activity is omitted here;
-  // the fixture/deployer can supply timestamps via a richer parser later.
+  if (startTs !== null) {
+    session.startedAt = new Date(startTs).toISOString();
+    if (lastTs !== null) session.durationMs = lastTs - startTs;
+  }
 
   session.totalTokens = session.turns.reduce((a, t) => a + t.totalTokens, 0);
   return session;
@@ -162,4 +181,72 @@ export function aggregateTools(session: Session): ToolAggregate[] {
     }
   }
   return [...map.values()].sort((a, b) => b.totalTokens - a.totalTokens);
+}
+
+/**
+ * Collapse many parsed sessions into a single overview: per-project rows,
+ * global totals, and tool aggregates across everything. Callers must run
+ * spreadTokens() on each session first so per-tool attribution is seeded.
+ */
+export function aggregateSessions(sessions: Session[]): Overview {
+  const projectMap = new Map<string, ProjectOverview>();
+  const toolMap = new Map<string, ToolAggregate>();
+  const totals: Overview["totals"] = {
+    sessions: sessions.length,
+    totalTokens: 0,
+    totalInput: 0,
+    totalOutput: 0,
+    totalCacheRead: 0,
+    totalCacheWrite: 0,
+  };
+
+  for (const s of sessions) {
+    totals.totalTokens += s.totalTokens;
+    totals.totalInput += s.totalInput;
+    totals.totalOutput += s.totalOutput;
+    totals.totalCacheRead += s.totalCacheRead;
+    totals.totalCacheWrite += s.totalCacheWrite;
+
+    const p = projectMap.get(s.project) ?? {
+      project: s.project,
+      sessions: 0,
+      totalTokens: 0,
+      totalInput: 0,
+      totalOutput: 0,
+      totalCacheRead: 0,
+      totalCacheWrite: 0,
+    };
+    p.sessions += 1;
+    p.totalTokens += s.totalTokens;
+    p.totalInput += s.totalInput;
+    p.totalOutput += s.totalOutput;
+    p.totalCacheRead += s.totalCacheRead;
+    p.totalCacheWrite += s.totalCacheWrite;
+    projectMap.set(s.project, p);
+
+    for (const agg of aggregateTools(s)) {
+      const t = toolMap.get(agg.name) ?? {
+        name: agg.name,
+        calls: 0,
+        totalTokens: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+      };
+      t.calls += agg.calls;
+      t.totalTokens += agg.totalTokens;
+      t.inputTokens += agg.inputTokens;
+      t.outputTokens += agg.outputTokens;
+      t.cacheRead += agg.cacheRead;
+      t.cacheWrite += agg.cacheWrite;
+      toolMap.set(agg.name, t);
+    }
+  }
+
+  return {
+    projects: [...projectMap.values()].sort((a, b) => b.totalTokens - a.totalTokens),
+    totals,
+    toolAggregates: [...toolMap.values()].sort((a, b) => b.totalTokens - a.totalTokens),
+  };
 }

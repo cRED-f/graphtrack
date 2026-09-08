@@ -1,0 +1,32 @@
+{
+  "name": "graphtrack",
+  "version": "0.1.0",
+  "description": "Visualize Claude Code token usage as an interactive graph. Local-first, open source, your logs never leave your machine.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "graphtrack": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/cli.js",
+    "dev": "tsc --watch",
+    "test": "node --experimental-strip-types --test test/*.test.ts"
+  },
+  "keywords": [
+    "claude-code",
+    "token",
+    "usage",
+    "analytics",
+    "graph",
+    "visualization"
+  ],
+  "dependencies": {
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.5.0",
+    "typescript": "^5.5.0"
+  }
+}

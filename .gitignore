@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# This project's design doc is intentionally not versioned with the source
+# (it can drift from the shipped UI). Keep it local only.
+DESIGN.md
+
+# Local environment / secrets
+.env
+.env.*
+!.env.example
+
+# Logs (privacy: session data must never be committed)
+*.log
+.claude/projects/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

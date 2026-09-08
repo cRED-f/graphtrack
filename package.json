@@ -1,6 +1,6 @@
 {
   "name": "graphtrack",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Visualize Claude Code token usage as an interactive graph. Local-first, open source, your logs never leave your machine.",
   "license": "MIT",
   "type": "module",
@@ -15,7 +15,10 @@
     "prepublishOnly": "npm run build",
     "pack:check": "npm pack --dry-run"
   },
-  "files": ["dist", "public/index.html"],
+  "files": [
+    "dist",
+    "public/index.html"
+  ],
   "keywords": [
     "claude-code",
     "token",

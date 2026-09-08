@@ -46,17 +46,18 @@ export interface VisEdge {
   arrows?: string;
 }
 
-/** Consistent color per tool name, tuned for a dark canvas. */
+/** Consistent color per tool name, tuned for a dark canvas. Bright & vivid. */
 const TOOL_COLORS: Record<string, string> = {
   Bash: "#faff69",
-  Read: "#3b82f6",
-  Edit: "#22c55e",
-  Grep: "#ef4444",
-  Glob: "#a78bfa",
-  WebSearch: "#f59e0b",
+  Read: "#60a5fa",
+  Edit: "#4ade80",
+  Grep: "#f87171",
+  Glob: "#c084fc",
+  WebSearch: "#fbbf24",
   Task: "#22d3ee",
   Write: "#34d399",
-  default: "#888888",
+  Agent: "#fb923c",
+  default: "#94a3b8",
 };
 
 export function toolColor(name: string): string {
@@ -156,7 +157,7 @@ export function buildChronologicalGraph(session: Session): { nodes: VisNode[]; e
       nodes.push({
         id: callId,
         label: call.name,
-        value: 1.2,
+        value: 2.5,
         color: { background: toolColor(call.name), border: "#ffffff" },
         group: "tool",
         title: `${call.name} ${call.summary}`,

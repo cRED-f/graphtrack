@@ -742,8 +742,9 @@
         shape: "dot",
         font: { color: "#a0a0ac", size: 12, face: "Inter, system-ui, sans-serif" },
         widthConstraint: { maximum: 140 },
-        borderWidth: 0,
-        shadow: { enabled: true, color: "rgba(250,255,105,0.08)", size: 12, x: 0, y: 0 },
+        borderWidth: 2,
+        borderWidthSelected: 3,
+        shadow: false,
       },
       edges: {
         color: { color: "#25252a", highlight: "#faff69", hover: "#4a4a52" },
@@ -876,7 +877,7 @@
     }
 
     function getFilteredSessions() {
-      let list = sessions;
+      let list = sessions.filter((s) => s.project !== "subagents");
       if (activeFilter) list = list.filter((s) => s.project === activeFilter);
       const q = ddSearch.value.trim().toLowerCase();
       if (q) list = list.filter((s) => s.id.toLowerCase().includes(q) || s.project.toLowerCase().includes(q));
@@ -960,6 +961,7 @@
       const o = overview;
       if (!o) { showEmpty("No overview data", "The server didn't return an overview."); return; }
       fillStats(overviewStats(o));
+      o.projects = o.projects.filter((p) => p.project !== "subagents");
       const projMax = Math.max(1, ...o.projects.map((p) => p.totalTokens));
       const total = o.totals.totalTokens || 1;
       const projRows = o.projects.map((p, i) => `
@@ -1041,6 +1043,31 @@
     $("btnAgg").addEventListener("click", () => { view = "aggregate"; setViewActive("btnAgg"); render(); });
     $("btnChain").addEventListener("click", () => { view = "chronological"; setViewActive("btnChain"); render(); });
     $("btnTable").addEventListener("click", () => { view = "table"; setViewActive("btnTable"); if (!current) render(); else renderTable(); });
+
+    // ─── auto-refresh every 10s ───
+    async function refreshData() {
+      try {
+        // Refresh session list
+        const r = await fetch("/api/sessions");
+        const data = await r.json();
+        if (data.sessions) sessions = data.sessions;
+
+        // Refresh current view data
+        if (view === "overview") {
+          const ov = await fetch("/api/overview");
+          overview = await ov.json();
+          renderOverview();
+        } else if (current && selectedSession) {
+          const sr = await fetch("/api/session/" + encodeURIComponent(selectedSession.project) + "/" + encodeURIComponent(selectedSession.id));
+          if (sr.ok) {
+            current = await sr.json();
+            fillStats(current.session);
+            render();
+          }
+        }
+      } catch { /* server may be restarting — skip this tick */ }
+    }
+    setInterval(refreshData, 10000);
 
     loadSessions();
   </script>

@@ -17,7 +17,8 @@
   },
   "files": [
     "dist",
-    "public/index.html"
+    "public/index.html",
+    "public/images"
   ],
   "keywords": [
     "claude-code",

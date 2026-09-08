@@ -63,6 +63,10 @@ npx graphtrack --port 3000
 | **Chronological Graph** | Turn-by-turn chain: each prompt links to the tools it triggered, ordered in time            |
 | **Table**               | Sortable per-tool and per-turn tables with color-coded token bars                           |
 
+### Session picker
+
+A searchable dropdown groups sessions by project — type to filter by ID or project name, then click to load.
+
 ### What gets tracked
 
 - **Input / output / cache tokens** per session, per turn, and per tool call
@@ -94,6 +98,7 @@ src/
 
 public/
   index.html      Dashboard UI (4 views, vanilla JS)
+  images/         Icon and assets
 
 test/
   parser.test.ts  Unit tests for parser, aggregation, and graph builders

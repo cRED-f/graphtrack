@@ -4,100 +4,674 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="description" content="Graphtrack — visualize Claude Code token usage as an interactive graph." />
+<link rel="icon" type="image/svg+xml" href="images/icon.svg" />
 <title>Graphtrack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.9/standalone/umd/vis-network.min.js"></script>
 <style>
   :root {
-    --canvas:#0a0a0a; --card:#1a1a1a; --yellow:#faff69; --body:#cccccc; --muted:#888888;
+    --canvas: #08080a;
+    --surface: #111114;
+    --card: #18181c;
+    --card-hover: #1e1e24;
+    --border: #25252a;
+    --border-light: #2e2e36;
+    --yellow: #faff69;
+    --yellow-dim: rgba(250, 255, 105, 0.08);
+    --yellow-glow: rgba(250, 255, 105, 0.12);
+    --text: #e8e8ec;
+    --body: #a0a0ac;
+    --muted: #65656f;
+    --accent-blue: #5b9cf5;
+    --accent-green: #4ade80;
+    --accent-red: #f87171;
+    --radius: 10px;
+    --radius-sm: 6px;
   }
-  * { box-sizing: border-box; }
-  html, body { height:100%; }
-  body { margin:0; font-family: Inter, system-ui, sans-serif; background:var(--canvas); color:var(--body); display:flex; flex-direction:column; }
-  header { padding:12px 28px; border-bottom:1px solid #2a2a2a; display:flex; align-items:center; gap:18px; flex: 0 0 auto; flex-wrap:wrap; }
-  header h1 { font-size:18px; margin:0; color:#fff; letter-spacing:-0.5px; font-weight:700; }
-  header .dot { color:var(--yellow); margin-right:2px; }
-  header .sub { font-size:12px; color:var(--muted); }
-  select {
-    background:var(--card); color:var(--body); border:1px solid #3a3a3a;
-    padding:6px 10px; border-radius:6px; font-size:13px; max-width:320px;
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background: var(--canvas);
+    color: var(--body);
+    display: flex;
+    flex-direction: column;
+    -webkit-font-smoothing: antialiased;
   }
-  select:disabled { opacity:0.5; }
-  .toggle { margin-left:auto; display:flex; gap:8px; }
-  .toggle button {
-    background:var(--card); color:var(--body); border:1px solid #3a3a3a;
-    padding:6px 12px; border-radius:6px; cursor:pointer; font-size:13px;
+
+  /* ─── NAVBAR ─── */
+  header {
+    padding: 10px 24px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    position: relative;
+    z-index: 10;
   }
-  .toggle button:hover { border-color:#5a5a5a; }
-  .toggle button.active { background:var(--yellow); color:#0a0a0a; border-color:var(--yellow); font-weight:600; }
-  #stats { flex: 0 0 auto; padding:12px 28px; display:flex; gap:28px; flex-wrap:wrap; font-size:13px; border-bottom:1px solid #2a2a2a; }
-  #stats .stat { display:flex; flex-direction:column; gap:2px; }
-  #stats .stat .label { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:0.5px; }
-  #stats .stat .value { color:#fff; font-weight:600; font-size:14px; }
-  #graph {
-    flex: 1 1 auto; min-height:0; width:100%;
-    background-color: var(--canvas);
-    background-image:
-      linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px);
-    background-size: 42px 42px;
+  header::after {
+    content: "";
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--yellow-dim), transparent);
+  }
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .logo img {
+    width: 26px;
+    height: 26px;
+    filter: drop-shadow(0 0 6px rgba(250, 255, 105, 0.25));
+    transition: filter 0.3s;
+  }
+  .logo img:hover {
+    filter: drop-shadow(0 0 10px rgba(250, 255, 105, 0.45));
+  }
+  .logo h1 {
+    font-size: 17px;
+    color: var(--text);
+    letter-spacing: -0.4px;
+    font-weight: 700;
+  }
+  .sub {
+    font-size: 11.5px;
+    color: var(--muted);
+    margin-right: 4px;
+    white-space: nowrap;
+  }
+
+  /* ─── CUSTOM DROPDOWN ─── */
+  .dropdown {
     position: relative;
   }
+  .dropdown-trigger {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--card);
+    color: var(--body);
+    border: 1px solid var(--border);
+    padding: 6px 12px;
+    border-radius: var(--radius-sm);
+    font-size: 12.5px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    max-width: 340px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 200px;
+  }
+  .dropdown-trigger:hover {
+    border-color: var(--border-light);
+    background: var(--card-hover);
+  }
+  .dropdown-trigger:focus {
+    outline: none;
+    border-color: var(--yellow);
+    box-shadow: 0 0 0 2px var(--yellow-dim);
+  }
+  .dropdown-trigger.disabled {
+    opacity: 0.4;
+    pointer-events: none;
+  }
+  .dropdown-trigger .dd-label {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: left;
+  }
+  .dropdown-trigger .dd-label.placeholder {
+    color: var(--muted);
+  }
+  .dropdown-trigger .dd-chevron {
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+    color: var(--muted);
+    transition: transform 0.2s ease, color 0.2s;
+  }
+  .dropdown-trigger:hover .dd-chevron { color: var(--body); }
+  .dropdown.open .dropdown-trigger {
+    border-color: var(--yellow);
+    box-shadow: 0 0 0 2px var(--yellow-dim);
+  }
+  .dropdown.open .dd-chevron {
+    transform: rotate(180deg);
+    color: var(--yellow);
+  }
+  .dropdown-panel {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    min-width: 100%;
+    width: 360px;
+    background: var(--card);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(250, 255, 105, 0.04);
+    z-index: 100;
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+    pointer-events: none;
+    transition: opacity 0.18s ease, transform 0.18s ease;
+    overflow: hidden;
+  }
+  .dropdown.open .dropdown-panel {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
+  }
+  .dd-search {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .dd-search input {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 7px 10px 7px 32px;
+    font-size: 12.5px;
+    font-family: inherit;
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .dd-search input:focus {
+    border-color: var(--yellow);
+  }
+  .dd-search input::placeholder {
+    color: var(--muted);
+  }
+  .dd-search-icon {
+    position: absolute;
+    left: 22px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 14px;
+    height: 14px;
+    color: var(--muted);
+    pointer-events: none;
+  }
+  .dd-search { position: relative; }
+  .dd-list {
+    max-height: 300px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 4px;
+  }
+  .dd-group-label {
+    padding: 8px 10px 4px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  .dd-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+    font-size: 12.5px;
+    color: var(--body);
+  }
+  .dd-item:hover {
+    background: var(--yellow-dim);
+    color: var(--text);
+  }
+  .dd-item.selected {
+    background: rgba(250, 255, 105, 0.1);
+    color: var(--yellow);
+  }
+  .dd-item .dd-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--border-light);
+    flex-shrink: 0;
+    transition: background 0.15s;
+  }
+  .dd-item.selected .dd-dot {
+    background: var(--yellow);
+    box-shadow: 0 0 6px rgba(250, 255, 105, 0.4);
+  }
+  .dd-item-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .dd-item-id {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .dd-item.selected .dd-item-id {
+    color: var(--yellow);
+  }
+  .dd-item-proj {
+    font-size: 11px;
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .dd-empty {
+    padding: 20px 12px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 12.5px;
+  }
+  .dd-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 4px 8px;
+  }
+
+  .toggle {
+    margin-left: auto;
+    display: flex;
+    gap: 3px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 3px;
+  }
+  .toggle button {
+    background: transparent;
+    color: var(--muted);
+    border: none;
+    padding: 6px 14px;
+    border-radius: 7px;
+    cursor: pointer;
+    font-size: 12.5px;
+    font-weight: 500;
+    font-family: inherit;
+    transition: all 0.2s ease;
+    position: relative;
+  }
+  .toggle button:hover {
+    color: var(--body);
+    background: var(--card);
+  }
+  .toggle button.active {
+    background: var(--yellow);
+    color: #0a0a0a;
+    font-weight: 600;
+    box-shadow: 0 1px 4px rgba(250, 255, 105, 0.2);
+  }
+
+  #btnOverview {
+    background: var(--card);
+    color: var(--body);
+    border: 1px solid var(--border);
+    padding: 6px 14px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 12.5px;
+    font-weight: 500;
+    font-family: inherit;
+    transition: all 0.2s ease;
+  }
+  #btnOverview:hover {
+    border-color: var(--border-light);
+    color: var(--text);
+    background: var(--card-hover);
+  }
+  #btnOverview.active {
+    background: var(--yellow);
+    color: #0a0a0a;
+    border-color: var(--yellow);
+    font-weight: 600;
+    box-shadow: 0 1px 4px rgba(250, 255, 105, 0.2);
+  }
+
+  /* ─── STATS BAR ─── */
+  #stats {
+    flex: 0 0 auto;
+    padding: 10px 24px;
+    display: flex;
+    gap: 2px;
+    flex-wrap: wrap;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  #stats .stat {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 6px 16px;
+    border-radius: var(--radius-sm);
+    transition: background 0.2s;
+  }
+  #stats .stat:hover {
+    background: var(--card);
+  }
+  #stats .stat:first-child {
+    padding-left: 0;
+  }
+  #stats .stat .label {
+    color: var(--muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    font-weight: 600;
+  }
+  #stats .stat .value {
+    color: var(--text);
+    font-weight: 600;
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+    transition: color 0.2s;
+  }
+  #stats .stat:hover .value {
+    color: #fff;
+  }
+
+  /* ─── GRAPH / MAIN AREA ─── */
+  #graph {
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+    background-color: var(--canvas);
+    background-image:
+      radial-gradient(circle 600px at 50% 50%, rgba(250, 255, 105, 0.015), transparent),
+      linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+    background-size: auto, 48px 48px, 48px 48px;
+    position: relative;
+    overflow: hidden;
+  }
   #graph::after {
-    content:"";
-    position: absolute; inset: 0; pointer-events: none;
-    background: radial-gradient(ellipse at center, rgba(255,250,105,0.04) 0%, transparent 55%);
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(ellipse at center, rgba(250, 255, 105, 0.03) 0%, transparent 60%);
   }
   #graph canvas { position: relative; z-index: 2; }
+
+  /* empty state */
   #graph .empty {
-    position: absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
-    gap:8px; z-index:2; text-align:center; padding:24px;
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    z-index: 2;
+    text-align: center;
+    padding: 24px;
   }
-  #graph .empty h2 { color:#fff; margin:0; font-size:20px; }
-  #graph .empty p { color:var(--muted); margin:0; font-size:13px; max-width:460px; line-height:1.5; }
-  #graph .empty code { background:var(--card); padding:2px 6px; border-radius:4px; color:var(--yellow); }
-  #spinner { display:none; position:fixed; inset:0; z-index:1000; align-items:center; justify-content:center; }
-  #spinner.on { display:flex; }
-  #spinner span { color:var(--yellow); border:2px solid #3a3a3a; border-top-color:var(--yellow); border-radius:50%; width:34px; height:34px; animation:spin 0.8s linear infinite; }
+  #graph .empty .icon {
+    width: 56px;
+    height: 56px;
+    opacity: 0.15;
+    margin-bottom: 4px;
+  }
+  #graph .empty h2 { color: var(--text); font-size: 18px; font-weight: 600; }
+  #graph .empty p { color: var(--muted); font-size: 13px; max-width: 440px; line-height: 1.6; }
+  #graph .empty code {
+    background: var(--card);
+    border: 1px solid var(--border);
+    padding: 3px 8px;
+    border-radius: var(--radius-sm);
+    color: var(--yellow);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+  }
+
+  /* spinner */
+  #spinner {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+    background: rgba(8, 8, 10, 0.5);
+    backdrop-filter: blur(4px);
+  }
+  #spinner.on { display: flex; }
+  #spinner span {
+    color: var(--yellow);
+    border: 2.5px solid var(--border);
+    border-top-color: var(--yellow);
+    border-radius: 50%;
+    width: 30px;
+    height: 30px;
+    animation: spin 0.7s linear infinite;
+  }
   @keyframes spin { to { transform: rotate(360deg); } }
-  #btnOverview {
-    background:var(--card); color:var(--body); border:1px solid #3a3a3a;
-    padding:6px 12px; border-radius:6px; cursor:pointer; font-size:13px;
+
+  /* ─── TABLE VIEW ─── */
+  .tables {
+    height: 100%;
+    overflow: auto;
+    padding: 24px 28px 40px;
   }
-  #btnOverview:hover { border-color:#5a5a5a; }
-  #btnOverview.active { background:var(--yellow); color:#0a0a0a; border-color:var(--yellow); font-weight:600; }
-  .tables { height:100%; overflow:auto; padding:20px 28px 40px; }
-  .tbl-sec { margin-bottom:28px; max-width:900px; }
-  .tables h3 { color:#fff; margin:0 0 10px; font-size:14px; letter-spacing:1px; text-transform:uppercase; }
-  .tables table { width:100%; border-collapse:collapse; font-size:13px; }
-  .tables th, .ov-list th { text-align:left; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.5px; font-weight:600; padding:6px 12px; border-bottom:1px solid #2a2a2a; }
-  .tables td, .ov-list td { padding:7px 12px; border-bottom:1px solid #242424; color:var(--body); }
-  .tables th.num, .tables td.num, .ov-list th.num, .ov-list td.num { text-align:right; font-variant-numeric:tabular-nums; }
-  .swatch { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:8px; vertical-align:middle; }
-  .bar { display:inline-block; height:8px; border-radius:4px; min-width:2px; vertical-align:middle; }
-  .tables .muted, .ov-list .muted { color:var(--muted); }
-  .ov-wrap { height:100%; display:flex; }
-  .ov-graph { flex:1 1 auto; min-width:0; position:relative; }
-  .ov-list { flex:0 0 420px; overflow:auto; padding:20px 24px; border-left:1px solid #2a2a2a; }
-  .ov-list h3 { color:#fff; margin:0 0 12px; font-size:14px; letter-spacing:1px; text-transform:uppercase; }
-  .ov-list .hint { color:var(--muted); font-size:12px; margin:12px 0 0; }
-  .project-row { cursor:pointer; }
-  .project-row:hover td { background:#121212; }
-  .proj-name { color:#fff; font-family:ui-monospace, monospace; font-size:12px; }
+  .tbl-sec {
+    margin-bottom: 32px;
+    max-width: 920px;
+  }
+  .tables h3 {
+    color: var(--text);
+    margin: 0 0 12px;
+    font-size: 12px;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .tables h3::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+  .tables table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .tables th {
+    text-align: left;
+    color: var(--muted);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    font-weight: 600;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--canvas);
+    z-index: 1;
+  }
+  .tables td {
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    color: var(--body);
+    transition: background 0.15s, color 0.15s;
+  }
+  .tables tbody tr {
+    transition: background 0.15s;
+  }
+  .tables tbody tr:hover {
+    background: var(--card);
+  }
+  .tables tbody tr:hover td {
+    color: var(--text);
+  }
+  .tables th.num, .tables td.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    margin-right: 10px;
+    vertical-align: middle;
+    box-shadow: 0 0 6px rgba(255, 255, 255, 0.05);
+  }
+  .bar {
+    display: inline-block;
+    height: 6px;
+    border-radius: 3px;
+    min-width: 2px;
+    vertical-align: middle;
+    transition: width 0.4s ease;
+  }
+  .tables .muted, .ov-list .muted { color: var(--muted); }
+
+  /* ─── OVERVIEW ─── */
+  .ov-wrap { height: 100%; display: flex; }
+  .ov-graph { flex: 1 1 auto; min-width: 0; position: relative; }
+  .ov-list {
+    flex: 0 0 420px;
+    overflow: auto;
+    padding: 24px;
+    border-left: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .ov-list h3 {
+    color: var(--text);
+    margin: 0 0 16px;
+    font-size: 12px;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .ov-list h3::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+  .ov-list th {
+    text-align: left;
+    color: var(--muted);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    font-weight: 600;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--surface);
+    z-index: 1;
+  }
+  .ov-list td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--body);
+    font-size: 13px;
+    transition: background 0.15s, color 0.15s;
+  }
+  .ov-list th.num, .ov-list td.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .ov-list .hint {
+    color: var(--muted);
+    font-size: 11.5px;
+    margin: 16px 0 0;
+    padding: 0 12px;
+    line-height: 1.5;
+  }
+  .project-row {
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .project-row:hover td {
+    background: var(--card-hover);
+    color: var(--text);
+  }
+  .proj-name {
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  /* ─── GLOW CURSOR EFFECT ─── */
   #glow {
-    position: fixed; inset: 0; pointer-events: none; z-index: 9999;
-    background: radial-gradient(circle 200px at var(--gx, -9999px) var(--gy, -9999px),
-      rgba(255,250,105,0.16), rgba(255,250,105,0.05) 45%, transparent 72%);
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9999;
+    background: radial-gradient(circle 180px at var(--gx, -9999px) var(--gy, -9999px),
+      rgba(250, 255, 105, 0.07), rgba(250, 255, 105, 0.02) 50%, transparent 75%);
     opacity: 0;
+    transition: opacity 0.4s ease;
   }
   #glow.on { opacity: 1; }
+
+  /* ─── VIEW TRANSITIONS ─── */
+  .fade-in { animation: fadeIn 0.25s ease; }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ─── SCROLLBAR ─── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 </style>
 </head>
 <body>
   <header>
-    <h1><span class="dot">▪</span>Graphtrack</h1>
-    <span class="sub">Claude Code token usage, as a graph</span>
+    <div class="logo">
+      <img src="images/icon.svg" alt="" />
+      <h1>Graphtrack</h1>
+    </div>
     <button id="btnOverview" title="All sessions at a glance">Overview</button>
-    <select id="sessionSelect" disabled title="Select a session"><option>Loading sessions…</option></select>
+    <div class="dropdown" id="sessionDropdown">
+      <button class="dropdown-trigger disabled" id="sessionTrigger">
+        <span class="dd-label placeholder">Loading sessions…</span>
+        <svg class="dd-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="dropdown-panel">
+        <div class="dd-search">
+          <svg class="dd-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="ddSearch" placeholder="Search sessions…" autocomplete="off" />
+        </div>
+        <div class="dd-list" id="ddList"></div>
+      </div>
+    </div>
     <div class="toggle">
       <button id="btnAgg" class="active">Aggregate</button>
       <button id="btnChain">Chronological</button>
@@ -135,11 +709,20 @@
     }
     function truncate(s, n) { s = String(s); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
 
-    const sessionSelect = $("sessionSelect");
+    /* ─── Custom dropdown state ─── */
+    let sessions = [];
+    let selectedSession = null;
+    let activeFilter = null; // project slug or null
+    let ddOpen = false;
+
+    const dropdown = $("sessionDropdown");
+    const ddTrigger = $("sessionTrigger");
+    const ddList = $("ddList");
+    const ddSearch = $("ddSearch");
     const spinner = $("spinner");
     const container = $("graph");
-    let current = null;   // { session, turns, aggregate, chronological, toolAggregates }
-    let overview = null;  // { totals, projects, toolAggregates, graph }
+    let current = null;
+    let overview = null;
     let view = "overview";
     let network = null;
 
@@ -154,9 +737,20 @@
 
     const options = {
       physics: { enabled: true, solver: "forceAtlas2Based", stabilization: { iterations: 200 } },
-      interaction: { hover: true, tooltipDelay: 200 },
-      nodes: { shape: "dot", font: { color: "#cccccc", size: 13 }, widthConstraint: { maximum: 140 } },
-      edges: { color: { color: "#3a3a3a", highlight: "#faff69" }, smooth: { enabled: true, type: "dynamic" } },
+      interaction: { hover: true, tooltipDelay: 200, zoomView: true, dragView: true },
+      nodes: {
+        shape: "dot",
+        font: { color: "#a0a0ac", size: 12, face: "Inter, system-ui, sans-serif" },
+        widthConstraint: { maximum: 140 },
+        borderWidth: 0,
+        shadow: { enabled: true, color: "rgba(250,255,105,0.08)", size: 12, x: 0, y: 0 },
+      },
+      edges: {
+        color: { color: "#25252a", highlight: "#faff69", hover: "#4a4a52" },
+        smooth: { enabled: true, type: "dynamic" },
+        width: 1.2,
+        shadow: false,
+      },
     };
 
     function showSpinner(on) { spinner.classList.toggle("on", on); }
@@ -166,7 +760,8 @@
     function unmountGraph() { if (network) { network.destroy(); network = null; } }
     function mountGraph(data, el) {
       unmountGraph();
-      network = new vis.Network(el || container, { nodes: new vis.DataSet(data.nodes), edges: new vis.DataSet(data.edges) }, options);
+      const target = el || container;
+      network = new vis.Network(target, { nodes: new vis.DataSet(data.nodes), edges: new vis.DataSet(data.edges) }, options);
     }
 
     function fillStats(s) {
@@ -184,11 +779,13 @@
 
     function showEmpty(title, body) {
       unmountGraph();
-      container.innerHTML = '<div class="empty">' + (title ? "<h2></h2><p></p>" : "") + '</div>';
+      container.innerHTML = '<div class="empty">' +
+        '<img src="images/icon.svg" class="icon" alt="" />' +
+        (title ? "<h2></h2><p></p>" : "") + '</div>';
       if (title) { container.querySelector("h2").textContent = title; container.querySelector("p").textContent = body; }
     }
 
-    // ---- session views (aggregate / chronological / table) ----
+    // ─── session views ───
 
     function render() {
       if (!current) { showEmpty("No session selected", "Pick a session from the dropdown, or open Overview for all sessions."); return; }
@@ -216,7 +813,7 @@
           <td class="num">${fmt(t.totalTokens)}</td>
         </tr>`).join("");
       container.innerHTML = `
-        <div class="tables">
+        <div class="tables fade-in">
           <section class="tbl-sec">
             <h3>Tool share</h3>
             <table>
@@ -251,7 +848,7 @@
       }
     }
 
-    // ---- overview ----
+    // ─── overview ───
 
     function overviewStats(o) {
       return {
@@ -269,10 +866,94 @@
     }
 
     function filterSessions(project) {
-      for (const opt of sessionSelect.options) opt.hidden = opt.dataset.slug !== project;
-      const firstVisible = [...sessionSelect.options].find((o) => !o.hidden);
-      if (firstVisible) { sessionSelect.value = firstVisible.value; loadSession(firstVisible.dataset.slug, firstVisible.value); }
+      activeFilter = project;
+      renderDdList();
+      // Auto-select first matching session
+      const filtered = getFilteredSessions();
+      if (filtered.length > 0) {
+        selectSession(filtered[0]);
+      }
     }
+
+    function getFilteredSessions() {
+      let list = sessions;
+      if (activeFilter) list = list.filter((s) => s.project === activeFilter);
+      const q = ddSearch.value.trim().toLowerCase();
+      if (q) list = list.filter((s) => s.id.toLowerCase().includes(q) || s.project.toLowerCase().includes(q));
+      return list;
+    }
+
+    function selectSession(s) {
+      selectedSession = s;
+      const label = ddTrigger.querySelector(".dd-label");
+      label.classList.remove("placeholder");
+      label.textContent = s.project + " · " + s.id;
+      closeDropdown();
+      loadSession(s.project, s.id);
+    }
+
+    function openDropdown() {
+      ddOpen = true;
+      dropdown.classList.add("open");
+      ddSearch.value = "";
+      renderDdList();
+      requestAnimationFrame(() => ddSearch.focus());
+    }
+
+    function closeDropdown() {
+      ddOpen = false;
+      dropdown.classList.remove("open");
+    }
+
+    function toggleDropdown() {
+      ddOpen ? closeDropdown() : openDropdown();
+    }
+
+    function renderDdList() {
+      const filtered = getFilteredSessions();
+      if (filtered.length === 0) {
+        ddList.innerHTML = '<div class="dd-empty">No sessions found</div>';
+        return;
+      }
+      // Group by project
+      const groups = new Map();
+      for (const s of filtered) {
+        if (!groups.has(s.project)) groups.set(s.project, []);
+        groups.get(s.project).push(s);
+      }
+      let html = "";
+      for (const [proj, items] of groups) {
+        if (groups.size > 1) {
+          html += `<div class="dd-group-label">${escapeHtml(truncate(proj, 36))}</div>`;
+        }
+        for (const s of items) {
+          const sel = selectedSession && selectedSession.id === s.id ? " selected" : "";
+          html += `<div class="dd-item${sel}" data-id="${escapeHtml(s.id)}" data-project="${escapeHtml(s.project)}">
+            <span class="dd-dot"></span>
+            <div class="dd-item-info">
+              <span class="dd-item-id">${escapeHtml(s.id)}</span>
+              <span class="dd-item-proj">${escapeHtml(s.project)}</span>
+            </div>
+          </div>`;
+        }
+      }
+      ddList.innerHTML = html;
+      ddList.querySelectorAll(".dd-item").forEach((el) =>
+        el.addEventListener("click", (e) => {
+          e.stopPropagation();
+          selectSession({ id: el.dataset.id, project: el.dataset.project });
+        })
+      );
+    }
+
+    // Close on outside click
+    document.addEventListener("click", (e) => {
+      if (ddOpen && !dropdown.contains(e.target)) closeDropdown();
+    });
+    // Close on Escape
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && ddOpen) closeDropdown();
+    });
 
     function renderOverview() {
       unmountGraph();
@@ -281,8 +962,8 @@
       fillStats(overviewStats(o));
       const projMax = Math.max(1, ...o.projects.map((p) => p.totalTokens));
       const total = o.totals.totalTokens || 1;
-      const projRows = o.projects.map((p) => `
-        <tr class="project-row" data-project="${escapeHtml(p.project)}">
+      const projRows = o.projects.map((p, i) => `
+        <tr class="project-row" data-project="${escapeHtml(p.project)}" style="animation-delay:${i * 30}ms">
           <td class="proj-name">${escapeHtml(p.project)}</td>
           <td class="num">${p.sessions}</td>
           <td class="num">${fmt(p.totalTokens)}</td>
@@ -290,7 +971,7 @@
           <td><div class="bar" style="width:${Math.max(2, Math.round(p.totalTokens / projMax * 100))}%;background:var(--yellow)"></div></td>
         </tr>`).join("");
       container.innerHTML = `
-        <div class="ov-wrap">
+        <div class="ov-wrap fade-in">
           <div class="ov-graph" id="ovGraph"></div>
           <div class="ov-list">
             <h3>Projects · ${o.totals.sessions} sessions</h3>
@@ -298,7 +979,7 @@
               <thead><tr><th>Project</th><th class="num">Sess</th><th class="num">Tokens</th><th class="num">%</th><th style="width:30%"></th></tr></thead>
               <tbody>${projRows || '<tr><td colspan="5" class="muted">No sessions found.</td></tr>'}</tbody>
             </table>
-            <p class="hint">Click a project to load its sessions above.</p>
+            <p class="hint">Click a project to filter sessions in the dropdown above.</p>
           </div>
         </div>`;
       container.querySelectorAll(".project-row").forEach((tr) =>
@@ -322,7 +1003,7 @@
       }
     }
 
-    // ---- boot + controls ----
+    // ─── boot ───
 
     async function loadSessions() {
       try {
@@ -333,15 +1014,12 @@
             "Graphtrack reads session logs from " + data.logsDir + ". Run Claude Code a few times, then restart with:  graphtrack --dir <path>  if your logs live elsewhere.");
           return;
         }
-        sessionSelect.disabled = false;
-        sessionSelect.innerHTML = "";
-        data.sessions.forEach((s) => {
-          const opt = document.createElement("option");
-          opt.value = s.id;
-          opt.dataset.slug = s.project;
-          opt.textContent = s.project + " · " + s.id;
-          sessionSelect.appendChild(opt);
-        });
+        sessions = data.sessions;
+        ddTrigger.classList.remove("disabled");
+        const label = ddTrigger.querySelector(".dd-label");
+        label.classList.remove("placeholder");
+        label.textContent = sessions.length + " sessions";
+        ddTrigger.removeAttribute("disabled");
         loadOverview();
       } catch (e) {
         showEmpty("Can't reach the Graphtrack server",
@@ -349,10 +1027,12 @@
       }
     }
 
-    sessionSelect.addEventListener("change", () => {
-      const opt = sessionSelect.selectedOptions[0];
-      if (opt) loadSession(opt.dataset.slug, opt.value);
+    ddTrigger.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleDropdown();
     });
+    ddSearch.addEventListener("input", renderDdList);
+    ddSearch.addEventListener("click", (e) => e.stopPropagation());
     $("btnOverview").addEventListener("click", () => {
       view = "overview";
       setViewActive("btnOverview");
